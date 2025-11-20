@@ -330,6 +330,14 @@ if __name__ == "__main__":
         json={"labels": ["bug", "invalid"]},
     )
     response.raise_for_status()
+    print(response)
+    response = requests.post(
+        f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+        headers=get_headers(token),
+        json={"body": "coucou"},
+    )
+    response.raise_for_status()
+    print(response)
 
     if not repo or not token or not pr_number or not log_file or not run_id:
         raise ValueError(
