@@ -377,4 +377,4 @@ if __name__ == "__main__":
         )
         print(message)
 
-    update_linter_fails_label(message, repo, pr_number, token)
+#    update_linter_fails_label(message, repo, pr_number, token)
