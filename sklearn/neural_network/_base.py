@@ -279,6 +279,7 @@ def binary_log_loss(y_true, y_prob, sample_weight=None):
     ).sum()
 
 
+# make linter happy
 LOSS_FUNCTIONS = {
     "squared_error": squared_loss,
     "poisson": poisson_loss,
