@@ -25,7 +25,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-#    if: github.repository == 'scikit-learn/scikit-learn'
+    if: github.repository == 'scikit-learn/scikit-learn'
 
     steps:
       - name: Checkout
@@ -49,7 +49,7 @@ jobs:
   retrieve-commit-message:
     name: Retrieve the latest commit message
     runs-on: ubuntu-latest
-#    if: github.repository == 'scikit-learn/scikit-learn'
+    if: github.repository == 'scikit-learn/scikit-learn'
     outputs:
       message: ${{ steps.git-log.outputs.message }}
     steps:
@@ -83,7 +83,7 @@ jobs:
     #     ...
     name: Retrieve the selected tests
     runs-on: ubuntu-latest
-#    if: github.repository == 'scikit-learn/scikit-learn'
+    if: github.repository == 'scikit-learn/scikit-learn'
     outputs:
       tests: ${{ steps.selected-tests.outputs.tests }}
     needs: [retrieve-commit-message]
@@ -114,15 +114,14 @@ jobs:
   unit-tests:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-#    if: github.repository == 'scikit-learn/scikit-learn'
+    if: github.repository == 'scikit-learn/scikit-learn'
     needs: [lint, retrieve-commit-message, retrieve-selected-tests]
     strategy:
       # Ensures that all builds run to completion even if one of them fails
       fail-fast: false
-      matrix: &build_matrix
+      matrix:
         include:
           - name: Linux pymin_conda_forge_arm
-            id: linux_pymin_conda_forge_arm
             os: ubuntu-24.04-arm
             DISTRIB: conda
             LOCK_FILE: build_tools/github/pymin_conda_forge_arm_linux-aarch64_conda.lock
@@ -130,7 +129,6 @@ jobs:
           # Linux environment to test the latest available dependencies.
           # It runs tests requiring lightgbm, pandas and PyAMG.
           - name: Linux pylatest_pip_openblas_pandas
-            id: lniux_pylatest_pip_openblas_pandas
             os: ubuntu-24.04
             DISTRIB: conda
             LOCK_FILE: build_tools/azure/pylatest_pip_openblas_pandas_linux-64_conda.lock
@@ -145,7 +143,6 @@ jobs:
             PIP_BUILD_ISOLATION: true
 
           - name: macOS pylatest_conda_forge_arm
-            id: macOS_pylatest_conda_forge_arm
             os: macOS-15
             DISTRIB: conda
             LOCK_FILE: build_tools/azure/pylatest_conda_forge_osx-arm64_conda.lock
@@ -208,23 +205,6 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           disable_search: true
 
-      - name: Get job ID from API
-        id: jobid
-        if: ${{ always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')}}
-        run: |
-          job_name='${{ matrix.name }}'
-
-          # Get job list for this run
-          json=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-                        -H "Accept: application/vnd.github+json" \
-                        "https://api.github.com/repos/${{ github.repository }}/actions/runs/$GITHUB_RUN_ID/jobs")
-
-          # Extract the job ID matching the current job name
-          job_id=$(echo "$json" | jq -r ".jobs[] | select(.name == \"$job_name\") | .id")
-
-          echo "job_id=$job_id" >> $GITHUB_OUTPUT
-          echo "job_id:" $job_id
-
       - name: Update tracking issue
         if: ${{ always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')}}
         run: |
@@ -242,6 +222,7 @@ jobs:
             ${{ secrets.BOT_GITHUB_TOKEN }} \
             "$GITHUB_WORKFLOW ${{ matrix.name }}" \
             "$GITHUB_REPOSITORY" \
-            https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/job/$job_id \
+            https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID \
             --tests-passed $TESTS_PASSED \
-            --auto-close false
+            --auto-close false \
+            --job-name "${{ matrix.name }}"
