@@ -8,9 +8,11 @@ from sklearn.callback._callback_context import CallbackContext, get_context_path
 from sklearn.callback.tests._utils import (
     Estimator,
     MetaEstimator,
-    SimpleMetaEstimator,
+    NoCallbackEstimator,
+    ParentFitEstimator,
     TestingAutoPropagatedCallback,
     TestingCallback,
+    ThirdPartyEstimator,
 )
 
 
@@ -23,7 +25,7 @@ def test_propagate_callbacks():
     metaestimator = MetaEstimator(estimator)
     metaestimator.set_callbacks([not_propagated_callback, propagated_callback])
 
-    callback_ctx = CallbackContext._from_estimator(metaestimator, task_name="fit")
+    callback_ctx = CallbackContext._from_estimator(metaestimator, "fit")
     callback_ctx.propagate_callbacks(estimator)
 
     assert hasattr(estimator, "_parent_callback_ctx")
@@ -36,7 +38,7 @@ def test_propagate_callback_no_callback():
     estimator = Estimator()
     metaestimator = MetaEstimator(estimator)
 
-    callback_ctx = CallbackContext._from_estimator(metaestimator, task_name="fit")
+    callback_ctx = CallbackContext._from_estimator(metaestimator, "fit")
     assert len(callback_ctx._callbacks) == 0
 
     callback_ctx.propagate_callbacks(estimator)
@@ -63,20 +65,22 @@ def test_auto_propagated_callbacks():
 def _make_task_tree(n_children, n_grandchildren):
     """Helper function to create a tree of tasks with a context for each task."""
     estimator = Estimator()
-    root = CallbackContext._from_estimator(estimator, task_name="root task")
-    root.set_task_info(max_subtasks=n_children)
+    root = CallbackContext._from_estimator(estimator, "root task")
+    root.max_subtasks = n_children
 
     for i in range(n_children):
-        child = CallbackContext._from_estimator(estimator, task_name="child task")
-        child.set_task_info(task_id=i, max_subtasks=n_grandchildren)
-        root._add_child(child)
+        child = root.subcontext(
+            task_name="child task",
+            task_id=i,
+            max_subtasks=n_grandchildren,
+        )
 
         for j in range(n_grandchildren):
-            grandchild = CallbackContext._from_estimator(
-                estimator, task_name="grandchild task"
+            grandchild = child.subcontext(
+                task_name="grandchild task",
+                task_id=j,
+                max_subtasks=0,
             )
-            grandchild.set_task_info(task_id=j)
-            child._add_child(grandchild)
 
     return root
 
@@ -114,29 +118,34 @@ def test_task_tree():
 def test_add_child():
     """Sanity check for the `_add_child` method."""
     estimator = Estimator()
-    root = CallbackContext._from_estimator(estimator, task_name="root task")
-    root.set_task_info(max_subtasks=2)
+    root = CallbackContext._from_estimator(estimator, "root task")
+    root.max_subtasks = 2
 
-    first_child = CallbackContext._from_estimator(estimator, task_name="child task")
+    first_child = CallbackContext._from_estimator(estimator, "child task")
 
     root._add_child(first_child)
     assert root.max_subtasks == 2
     assert len(root._children_map) == 1
+    assert first_child.task_id == 0
 
     second_child = CallbackContext._from_estimator(estimator, task_name="child task")
     # root already has a child with id 0
+    second_child = CallbackContext._from_estimator(estimator, "child task")
     with pytest.raises(
         ValueError, match=r"Callback context .* already has a child with task_id=0"
     ):
         root._add_child(second_child)
 
-    second_child.set_task_info(task_id=1)
+    second_child.task_id = 1
     root._add_child(second_child)
     assert len(root._children_map) == 2
 
     third_child = CallbackContext._from_estimator(estimator, task_name="child task")
     third_child.set_task_info(task_id=2)
     # root can have at most 2 children
+    third_child = CallbackContext._from_estimator(estimator, "child task")
+    third_child.task_id = 2
+
     with pytest.raises(ValueError, match=r"Cannot add child to callback context"):
         root._add_child(third_child)
 
@@ -145,17 +154,18 @@ def test_merge_with():
     """Sanity check for the `_merge_with` method."""
     estimator = Estimator()
     meta_estimator = MetaEstimator(estimator)
-    outer_root = CallbackContext._from_estimator(meta_estimator, task_name="root")
-    outer_root.set_task_info(max_subtasks=2)
+    outer_root = CallbackContext._from_estimator(meta_estimator, "root")
+    outer_root.max_subtasks = 2
 
     # Add a child task within the same estimator
-    outer_child = CallbackContext._from_estimator(meta_estimator, task_name="child")
-    outer_child.set_task_info(max_subtasks=1)
+    outer_child = CallbackContext._from_estimator(meta_estimator, "child")
+    outer_child.task_id = "id"
+    outer_child.max_subtasks = 1
     outer_root._add_child(outer_child)
 
     # The root task of the inner estimator is merged with (and effectively replaces)
     # a leaf of the outer estimator because they correspond to the same formal task.
-    inner_root = CallbackContext._from_estimator(estimator, task_name="root")
+    inner_root = CallbackContext._from_estimator(estimator, "root")
     inner_root._merge_with(outer_child)
 
     assert inner_root.parent is outer_root
@@ -168,10 +178,27 @@ def test_merge_with():
     assert inner_root.prev_estimator_name == outer_child.estimator_name
 
 
-def test_no_parent_callback_after_fit():
-    """Check that the `_parent_callback_ctx` attribute does not survive after fit."""
-    estimator = Estimator()
-    meta_estimator = SimpleMetaEstimator(estimator)
+@pytest.mark.parametrize(
+    "estimator_class", [Estimator, ThirdPartyEstimator, ParentFitEstimator]
+)
+def test_callback_ctx_removed_after_fit(estimator_class):
+    """Check that the _callback_fit_ctx attribute gets removed after fit."""
+    estimator = estimator_class().fit()
+    assert not hasattr(estimator, "_callback_fit_ctx")
+
+
+def test_inner_estimator_no_callback_support():
+    """Check that meta estimators can have sub estimators without callback support.
+
+    No error is raised when the sub-estimator does not support callbacks. If callbacks
+    would be propagated, a warning is raised instead.
+    """
+    estimator = NoCallbackEstimator()
+    meta_estimator = MetaEstimator(estimator)
     meta_estimator.set_callbacks(TestingAutoPropagatedCallback())
-    meta_estimator.fit()
-    assert not hasattr(estimator, "_parent_callback_ctx")
+
+    with pytest.warns(
+        UserWarning,
+        match="The estimator NoCallbackEstimator does not support callbacks.",
+    ):
+        meta_estimator.fit()

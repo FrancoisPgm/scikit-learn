@@ -1,9 +1,11 @@
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
+import warnings
 from contextlib import contextmanager
 
-from sklearn.callback import AutoPropagatedCallback
+from sklearn.callback._base import AutoPropagatedCallback
+from sklearn.callback._mixin import CallbackSupportMixin
 
 # TODO(callbacks): move these explanations into a dedicated user guide.
 #
@@ -63,7 +65,7 @@ from sklearn.callback import AutoPropagatedCallback
 #     def __init__(self, max_iter):
 #         self.max_iter = max_iter
 #
-#     @_fit_context()
+#     @with_callback_context
 #     def fit(self, X, y):
 #         callback_ctx = self._callback_fit_ctx
 #         callback_ctx.max_subtasks = self.max_iter
@@ -92,8 +94,9 @@ class CallbackContext:
     This class is responsible for managing the callbacks and holding the tree structure
     of an estimator's tasks. Each instance corresponds to a task of the estimator.
 
-    Instances of this class should be created using the `__skl_init_callback_context__`
-    method of its estimator or the `subcontext` method of this class.
+    This class should not be instantiated directly, but through the
+    `with_callback_context` decorator of fit methods to create root context or using
+    the `subcontext` method of this class to create sub-contexts.
 
     These contexts are passed to the callback hooks to be able to keep track of the
     position of a task in the task tree within the callbacks.
@@ -395,11 +398,19 @@ class CallbackContext:
             if isinstance(callback, AutoPropagatedCallback)
             and (
                 callback.max_estimator_depth is None
-                or self._estimator_depth < callback.max_estimator_depth
+                or self._estimator_depth < callback.max_estimator_depth - 1
             )
         ]
 
         if not callbacks_to_propagate:
+            return self
+
+        if not isinstance(sub_estimator, CallbackSupportMixin):
+            warnings.warn(
+                f"The estimator {sub_estimator.__class__.__name__} does not support "
+                f"callbacks. The callbacks attached to {self.estimator_name} will not "
+                f"be propagated to this estimator."
+            )
             return self
 
         # We store the parent context in the sub-estimator to be able to merge the
@@ -436,12 +447,13 @@ def get_context_path(context):
 
 @contextmanager
 def callback_management_context(estimator, fit_method_name):
-    """Context manager for the CallbackContext initialization and clean-up during fit.
+    """Context manager to setup and teardown the callback context for an estimator.
 
     Parameters
     ----------
     estimator : estimator instance
-        Estimator being fitted.
+        The estimator being fitted.
+
     fit_method_name : str
         The name of the fit method being called.
 
@@ -452,15 +464,35 @@ def callback_management_context(estimator, fit_method_name):
     estimator._callback_fit_ctx = CallbackContext._from_estimator(
         estimator, task_name=fit_method_name
     )
+
     try:
         yield
     finally:
-        try:
+        if hasattr(estimator, "_callback_fit_ctx"):
             estimator._callback_fit_ctx.eval_on_fit_end(estimator)
             del estimator._callback_fit_ctx
-        except AttributeError:
-            pass
-        try:
-            del estimator._parent_callback_ctx
-        except AttributeError:
-            pass
+
+
+def with_callback_context(fit_method):
+    """Decorator to run the fit methods within the callback context manager.
+
+    This decorator creates the root callback context and stores it into a
+    `_callback_fit_ctx` attribute that is accessible during fit and cleaned-up
+    afterwards.
+
+    Parameters
+    ----------
+    fit_method : method
+        The fit method to decorate.
+
+    Returns
+    -------
+    decorated_fit_method : method
+        The decorated fit method.
+    """
+
+    def callback_managed_fit_method(estimator, *args, **kwargs):
+        with callback_management_context(estimator, fit_method.__name__):
+            return fit_method(estimator, *args, **kwargs)
+
+    return callback_managed_fit_method
