@@ -50,3 +50,4 @@ def test_poisson_loss(global_random_seed):
     )
 
     assert loss == pytest.approx(loss_ref, rel=1e-12)
+    assert False
