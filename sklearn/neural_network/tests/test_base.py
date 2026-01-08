@@ -12,6 +12,7 @@ def test_binary_log_loss_1_prob_finite():
 
     loss = binary_log_loss(y_true, y_prob)
     assert np.isfinite(loss)
+    assert False
 
 
 @pytest.mark.parametrize(
@@ -28,6 +29,7 @@ def test_log_loss_1_prob_finite(y_true, y_prob):
     # y_proba is equal to 1 should result in a finite logloss
     loss = log_loss(y_true, y_prob)
     assert np.isfinite(loss)
+    assert False
 
 
 def test_poisson_loss(global_random_seed):
