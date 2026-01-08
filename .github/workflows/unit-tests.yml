@@ -21,6 +21,7 @@ env:
   CCACHE_DIR: ${{ github.workspace }}/ccache
   COVERAGE: 'true'
   JUNITXML: 'test-data.xml'
+  JUNIT_FILE: ${{ github.workspace }}/tmp_folder/test-data.xml
 
 jobs:
   lint:
@@ -222,6 +223,6 @@ jobs:
             "$GITHUB_WORKFLOW ${{ matrix.name }}" \
             "$GITHUB_REPOSITORY" \
             https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID \
-            --junit-file $JUNITXML \
+            --junit-file $JUNIT_FILE \
             --auto-close false \
             --job-name "${{ matrix.name }}"
