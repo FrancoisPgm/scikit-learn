@@ -5,11 +5,10 @@ Callback support
 
 .. currentmodule:: sklearn
 
-This document shows how to make custom :term:`estimators` compatible with the callback
-mechanisms supported by scikit-learn.
+This document shows how to make custom :term:`estimators` and :term:`meta-estimators`
+compatible with the callback mechanisms supported by scikit-learn.
 
-To better understand the following document, we need to introduce the concept of
-a callback. Generally speaking, a callback is a function that is provided by the
+Generally speaking, a callback is a function that is provided by the
 user to be invoked automatically at specific steps of a process, or to be
 triggered by specific events. Callbacks provide a clean mechanism for inserting
 custom logic (like monitoring progress or metrics, or implementing early stopping)
@@ -58,7 +57,6 @@ X = rng.rand(n_samples, n_features)
 # callbacks. For the example, a simplified version of KMeans is presented.
 
 
-# The estimator must inherit from the `CallbackSupportMixin` class.
 # The estimator must inherit from the `CallbackSupportMixin` class.
 class SimpleKMeans(CallbackSupportMixin, BaseEstimator):
     _parameter_constraints: dict = {}
@@ -138,10 +136,9 @@ class SimpleKMeans(CallbackSupportMixin, BaseEstimator):
 # * ``fit`` needs to be decorated with the :func:`~base._fit_context` decorator
 #   (or the :func:`~callback.with_callback_context` decorator, see the
 #   following note).
-# * The callback context object can be accessed in the ``fit`` method through the
-#   ``_callback_fit_ctx`` attribute which was set in the decorator.
 # * If known, the maximum number of task iterations the ``fit`` method will perform
-#   must be set as the ``max_subtasks`` attribute of the callback context.
+#   must be set as the ``max_subtasks`` attribute of the callback context object
+#   (accessible as the ``_callback_fit_ctx`` attribute of the estimator).
 # * The :meth:`~callback._allback_context.CallbackContext.eval_on_fit_begin` method
 #   of the callback context must be called at the beginning of ``fit``,
 #   providing the estimator as an argument.
@@ -175,7 +172,7 @@ estimator.fit(X)
 # %%
 # Custom Meta-estimator
 # -------------------
-# Now we demonstrate how to implement a custom :term:`meta-estimator` that supports
+# Now we demonstrate how to implement a custom meta-estimator that supports
 # callbacks. For the example, we implement a simplified version of a grid search,
 # where only a list of parameters is provided and searched through instead of a grid.
 
@@ -211,7 +208,7 @@ class SimpleGridSearch(CallbackSupportMixin, BaseEstimator):
                 # This time a second level of `fit` iterations is also used, a
                 # second level of subcontext must then be used.
                 inner_subcontext = outer_subcontext.subcontext(
-                    task_name="fold iteration", task_id=j
+                    task_name=f"split {j}", task_id=j
                 )
 
                 estimator = clone(self.estimator).set_params(**params)
