@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  TEST_DIR: tmp_for_test
+  TEST_DIR: ${{ github.workspace }}/tmp_for_test
   JUNITXML: 'test-data.xml'
 
 jobs:
