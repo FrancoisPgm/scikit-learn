@@ -252,19 +252,25 @@ jobs:
   update-tracker:
     if: ${{ always() }}
     needs: [build_wheels]
+    runs-on: ubuntu-latest
     steps:
-      shell: bash
-      run: |
-        set -ex
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.9'
+      - name: Update tracking issue on GitHub
+        shell: bash
+        run: |
+          set -ex
 
-        pip install defusedxml PyGithub
-        python maint_tools/update_tracking_issue.py \
-          ${{ secrets.BOT_GITHUB_TOKEN }} \
-          "$GITHUB_WORKFLOW" \
-          "$GITHUB_REPOSITORY" \
-          https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID \
-          --junit-file $TEST_DIR/$JUNITXML \
-          --auto-close false \
+          pip install defusedxml PyGithub
+          python maint_tools/update_tracking_issue.py \
+            ${{ secrets.BOT_GITHUB_TOKEN }} \
+            "$GITHUB_WORKFLOW" \
+            "$GITHUB_REPOSITORY" \
+            https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID \
+            --junit-file $TEST_DIR/$JUNITXML \
+            --auto-close false \
 
   # Build the source distribution under Linux
   build_sdist:
