@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  TEST_DIR: ${{ github.workspace }}/tmp_for_test
+  TEST_DIR: tmp_for_test
   JUNITXML: 'test-data.xml'
 
 jobs:
@@ -70,40 +70,40 @@ jobs:
           - os: windows-latest
             python: 312
             platform_id: win_amd64
-          - os: windows-latest
-            python: 313
-            platform_id: win_amd64
-          - os: windows-latest
-            python: 313t
-            platform_id: win_amd64
-            cibw_enable: cpython-freethreading
-          - os: windows-latest
-            python: 314
-            platform_id: win_amd64
-          - os: windows-latest
-            python: 314t
-            platform_id: win_amd64
+          # - os: windows-latest
+          #   python: 313
+          #   platform_id: win_amd64
+          # - os: windows-latest
+          #   python: 313t
+          #   platform_id: win_amd64
+          #   cibw_enable: cpython-freethreading
+          # - os: windows-latest
+          #   python: 314
+          #   platform_id: win_amd64
+          # - os: windows-latest
+          #   python: 314t
+          #   platform_id: win_amd64
 
-          # Windows on ARM64 (WoA)
-          - os: windows-11-arm
-            python: 311
-            platform_id: win_arm64
-          - os: windows-11-arm
-            python: 312
-            platform_id: win_arm64
-          - os: windows-11-arm
-            python: 313
-            platform_id: win_arm64
-          - os: windows-11-arm
-            python: 313t
-            platform_id: win_arm64
-            cibw_enable: cpython-freethreading
-          - os: windows-11-arm
-            python: 314
-            platform_id: win_arm64
-          - os: windows-11-arm
-            python: 314t
-            platform_id: win_arm64
+          # # Windows on ARM64 (WoA)
+          # - os: windows-11-arm
+          #   python: 311
+          #   platform_id: win_arm64
+          # - os: windows-11-arm
+          #   python: 312
+          #   platform_id: win_arm64
+          # - os: windows-11-arm
+          #   python: 313
+          #   platform_id: win_arm64
+          # - os: windows-11-arm
+          #   python: 313t
+          #   platform_id: win_arm64
+          #   cibw_enable: cpython-freethreading
+          # - os: windows-11-arm
+          #   python: 314
+          #   platform_id: win_arm64
+          # - os: windows-11-arm
+          #   python: 314t
+          #   platform_id: win_arm64
 
           # # Linux
           # - os: ubuntu-latest
@@ -249,6 +249,12 @@ jobs:
           name: cibw-wheels-cp${{ matrix.python }}-${{ matrix.platform_id }}
           path: wheelhouse/*.whl
 
+      - name: Store JUnit file
+        uses: actions/upload-artifact@v6
+        with:
+          name: junit-{{ matrix.python }}-${{ matrix.platform_id }}
+          path: $TEST_DIR/$JUNITXML
+
   update-tracker:
     if: ${{ always() }}
     needs: [build_wheels]
@@ -258,6 +264,30 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.9'
+      - name: Get JUnit files
+        uses: actions/download-artifact@v6
+        with:
+          pattern: junit-*
+          path: junit_artifacts
+          merge-multiple: true
+      - name: Merge JUnit files
+        run: |
+          pip install junitparser  # simple tool to merge XMLs
+          python - <<'PY'
+          import glob, pathlib
+          from junitparser import JUnitXml
+
+          xmls = []
+          for path in glob.glob('junit_artifacts/junit-*.xml'):
+              xml = JUnitXml.fromfile(path)
+              xmls.append(xml)
+
+          merged = JUnitXml()
+          for xml in xmls:
+              merged.testsuite.extend(xml.testsuite)
+
+          merged.write('merged_report.xml')
+          PY
       - name: Update tracking issue on GitHub
         shell: bash
         run: |
@@ -269,7 +299,7 @@ jobs:
             "$GITHUB_WORKFLOW" \
             "$GITHUB_REPOSITORY" \
             https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID \
-            --junit-file $TEST_DIR/$JUNITXML \
+            --junit-file 'merged_report.xml' \
             --auto-close false \
 
   # Build the source distribution under Linux
