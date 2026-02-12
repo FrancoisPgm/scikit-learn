@@ -1084,6 +1084,7 @@ def test_mlp_vs_poisson_glm_equivalent(global_random_seed):
         random_state=np.random.RandomState(global_random_seed + 1),
     ).fit(X, y)
     assert not np.allclose(mlp.predict(X), glm.predict(X), rtol=1e-4)
+    assert False
 
 
 def test_minimum_input_sample_size():
