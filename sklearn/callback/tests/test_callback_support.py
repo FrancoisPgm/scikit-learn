@@ -32,7 +32,9 @@ def test_set_callbacks(callbacks):
     assert set_callbacks_return is estimator
 
 
-@pytest.mark.parametrize("callbacks", [None, NotValidCallback()])
+@pytest.mark.parametrize(
+    "callbacks", [NotValidCallback(), [TestingCallback(), NotValidCallback()]]
+)
 def test_set_callbacks_error(callbacks):
     """Check the error message when not passing a valid callback to `set_callbacks`."""
     estimator = MaxIterEstimator()

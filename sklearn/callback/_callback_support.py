@@ -1,7 +1,7 @@
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
-from sklearn.callback._base import Callback
+from sklearn.callback._base import check_callbacks
 from sklearn.callback._callback_context import CallbackContext
 
 
@@ -21,13 +21,7 @@ class CallbackSupportMixin:
         self : estimator instance
             The estimator instance itself.
         """
-        if not isinstance(callbacks, list):
-            callbacks = [callbacks]
-
-        if not all(isinstance(callback, Callback) for callback in callbacks):
-            raise TypeError("callbacks must follow the Callback protocol.")
-
-        self._skl_callbacks = callbacks
+        self._skl_callbacks = check_callbacks(callbacks)
 
         return self
 

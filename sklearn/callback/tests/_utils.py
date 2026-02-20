@@ -4,7 +4,11 @@
 import time
 
 from sklearn.base import BaseEstimator, _fit_context, clone
-from sklearn.callback import CallbackSupportMixin, with_callback_context
+from sklearn.callback import (
+    CallbackContext,
+    CallbackSupportMixin,
+    with_callback_context,
+)
 from sklearn.utils.parallel import Parallel, delayed
 
 
@@ -239,3 +243,31 @@ class NoSubtaskEstimator(CallbackSupportMixin, BaseEstimator):
         # No task performed
 
         return self
+
+
+def func_with_callbacks(estimator, X=None, y=None, n_iter=4, callbacks=None):
+    callback_ctx = CallbackContext._from_function(
+        func_with_callbacks,
+        task_name="my_func",
+        task_id=0,
+        max_subtasks=n_iter,
+        callbacks=callbacks,
+    )
+    callback_ctx.eval_on_fit_begin(estimator=func_with_callbacks)
+
+    for i in range(n_iter):  # TODO: Parallel loop
+        cloned_est = clone(estimator)
+        subcontext = callback_ctx.subcontext(task_id=i).propagate_callbacks(
+            sub_estimator=cloned_est
+        )
+
+        cloned_est.fit(X, y)
+
+        if subcontext.eval_on_fit_task_end(
+            estimator=func_with_callbacks,
+            data={"X_train": X, "y_train": y},
+        ):
+            break
+
+
+# TODO: test with nesting func: func and func; func and est

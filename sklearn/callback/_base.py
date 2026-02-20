@@ -71,3 +71,33 @@ class AutoPropagatedCallback(Callback, Protocol):
         If set to None, the callback is propagated to sub-estimators at all nesting
         levels.
         """
+
+
+def check_callbacks(callbacks):
+    """Callback validation.
+
+    Verify that the callbacks respect the sklearn.callbacks.Callback protocol, raises a
+    TypeError otherwise.
+
+    Parameters
+    ----------
+    callbacks : callback instance, list of callback instances or None
+        If callbacks is callback instance, returns a singleton list.
+        If callbacks is a list of callback instances, returns it.
+        If callbacks is None, returns an empty list.
+
+    Returns
+    ------
+    list of callback instances
+        The validated callbacks.
+    """
+    if callbacks is None:
+        callbacks = []
+
+    if not isinstance(callbacks, list):
+        callbacks = [callbacks]
+
+    if not all(isinstance(callback, Callback) for callback in callbacks):
+        raise TypeError("callbacks must follow the Callback protocol.")
+
+    return callbacks

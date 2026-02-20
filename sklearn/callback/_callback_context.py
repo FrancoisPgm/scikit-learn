@@ -4,7 +4,7 @@
 import warnings
 from contextlib import contextmanager
 
-from sklearn.callback._base import AutoPropagatedCallback
+from sklearn.callback._base import AutoPropagatedCallback, check_callbacks
 
 # TODO(callbacks): move these explanations into a dedicated user guide.
 #
@@ -128,7 +128,7 @@ class CallbackContext:
 
     @classmethod
     def _from_estimator(cls, estimator, task_name, task_id, max_subtasks):
-        """Private constructor to create a root context.
+        """Private constructor to create a root context from an estimator.
 
         Parameters
         ----------
@@ -211,6 +211,55 @@ class CallbackContext:
 
         # This task is a subtask of another task of a same estimator
         parent_context._add_child(new_ctx)
+
+        return new_ctx
+
+    @classmethod
+    def _from_function(cls, function, task_name, task_id, max_subtasks, callbacks):
+        """Private constructor to create a root context from a function.
+
+        Parameters
+        ----------
+        function : function object
+            The function this context is responsible for.
+
+        task_name : str
+            The name of the root task.
+
+        task_id : int or str
+            Identifier for the root task.
+
+        max_subtasks : int or None
+            The maximum number of subtasks that can be children of the root task. None
+            means the maximum number of subtasks is not known in advance. 0 means it's a
+            leaf.
+
+        callbacks: callback instance, list of callback instance or None
+            The callbacks used in the function.
+        """
+        new_ctx = cls.__new__(cls)
+        new_ctx._callbacks = check_callbacks(callbacks)
+        new_ctx.estimator_name = f"function_{function.__name__}"
+        new_ctx.task_name = task_name
+        new_ctx.task_id = task_id
+        new_ctx.max_subtasks = max_subtasks
+        new_ctx.parent = None
+        new_ctx._children_map = {}
+        new_ctx.source_estimator_name = None
+        new_ctx.source_task_name = None
+        new_ctx._has_called_on_fit_begin = False
+
+        if hasattr(function, "_parent_callback_ctx"):
+            # This context's task is the root task of the estimator which itself
+            # corresponds to a leaf task of a meta-estimator. Both tasks actually
+            # represent the same task so we merge both tasks into a single task,
+            # attaching the task tree of the sub-estimator to the task tree of
+            # the meta-estimator on the way.
+            parent_ctx = function._parent_callback_ctx
+            new_ctx._merge_with(parent_ctx)
+            new_ctx._estimator_depth = parent_ctx._estimator_depth + 1
+        else:
+            new_ctx._estimator_depth = 0
 
         return new_ctx
 
