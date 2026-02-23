@@ -10,7 +10,9 @@ from sklearn.callback import ProgressBar
 from sklearn.callback.tests._utils import (
     MaxIterEstimator,
     MetaEstimator,
+    MetaEstimatorUsingFunc,
     WhileEstimator,
+    func_with_callbacks,
 )
 from sklearn.utils._optional_dependencies import check_rich_support
 
@@ -67,3 +69,56 @@ def test_progressbar_requires_rich_error():
         err_msg = "Progressbar requires rich"
         with pytest.raises(ImportError, match=err_msg):
             ProgressBar()
+
+
+@pytest.mark.parametrize("n_jobs", [1, 2])
+@pytest.mark.parametrize("prefer", ["threads", "processes"])
+def test_func_with_callbacks(n_jobs, prefer):
+    """Testing in a callback-compatible function."""
+    estimator = MaxIterEstimator()
+    callback = ProgressBar(max_estimator_depth=2)
+    func_with_callbacks(
+        estimator,
+        X=None,
+        y=None,
+        n_iter=4,
+        n_jobs=n_jobs,
+        prefer=prefer,
+        callbacks=callback,
+    )
+
+
+@pytest.mark.parametrize("n_jobs", [1, 2])
+@pytest.mark.parametrize("prefer", ["threads", "processes"])
+def test_func_nested_in_meta_est(n_jobs, prefer):
+    """Testing in a callback-compatible function nested in a meta-estimator."""
+    est = MaxIterEstimator()
+    meta_est = MetaEstimatorUsingFunc(
+        func=func_with_callbacks,
+        func_kwargs={"n_jobs": n_jobs, "prefer": prefer},
+        estimator=est,
+        prefer=prefer,
+        n_jobs=n_jobs,
+    )
+    meta_est.set_callbacks(ProgressBar(max_estimator_depth=3))
+    meta_est.fit()
+
+
+@pytest.mark.parametrize("n_jobs", [1, 2])
+@pytest.mark.parametrize("prefer", ["threads", "processes"])
+def test_func_nested_in_meta_est_nested_in_func(n_jobs, prefer):
+    """Testing in a function nested in a meta-estimator nested in the same function."""
+    est = MaxIterEstimator()
+    meta_est = MetaEstimatorUsingFunc(
+        func=func_with_callbacks,
+        func_kwargs={"n_jobs": n_jobs, "prefer": prefer},
+        estimator=est,
+        prefer=prefer,
+        n_jobs=n_jobs,
+    )
+    func_with_callbacks(
+        meta_est,
+        n_jobs=n_jobs,
+        prefer=prefer,
+        callbacks=ProgressBar(max_estimator_depth=4),
+    )

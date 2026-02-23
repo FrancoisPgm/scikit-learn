@@ -197,7 +197,7 @@ class MetaEstimator(CallbackSupportMixin, BaseEstimator):
         callback_ctx.eval_on_fit_begin(estimator=self)
 
         Parallel(n_jobs=self.n_jobs, prefer=self.prefer)(
-            delayed(_func)(
+            delayed(_meta_est_func)(
                 self,
                 self.estimator,
                 X,
@@ -212,7 +212,7 @@ class MetaEstimator(CallbackSupportMixin, BaseEstimator):
         return self
 
 
-def _func(meta_estimator, inner_estimator, X, y, *, outer_callback_ctx):
+def _meta_est_func(meta_estimator, inner_estimator, X, y, *, outer_callback_ctx):
     for i in range(meta_estimator.n_inner):
         est = clone(inner_estimator)
 
@@ -245,7 +245,15 @@ class NoSubtaskEstimator(CallbackSupportMixin, BaseEstimator):
         return self
 
 
-def func_with_callbacks(estimator, X=None, y=None, n_iter=4, callbacks=None):
+def func_with_callbacks(
+    estimator, X=None, y=None, n_iter=4, n_jobs=None, prefer="processes", callbacks=None
+):
+    """A function mimicking a meta-estimator-like function.
+
+    This function fits sub-estimators in a parallel loop, thus behaving like a
+    meta-estimator. Such functions (e.g. cross_validate) should be able to handle
+    callbacks.
+    """
     callback_ctx = CallbackContext._from_function(
         func_with_callbacks,
         task_name="my_func",
@@ -255,19 +263,78 @@ def func_with_callbacks(estimator, X=None, y=None, n_iter=4, callbacks=None):
     )
     callback_ctx.eval_on_fit_begin(estimator=func_with_callbacks)
 
-    for i in range(n_iter):  # TODO: Parallel loop
-        cloned_est = clone(estimator)
-        subcontext = callback_ctx.subcontext(task_id=i).propagate_callbacks(
-            sub_estimator=cloned_est
+    Parallel(n_jobs=n_jobs, prefer=prefer)(
+        delayed(_func_prl_loop)(
+            estimator,
+            X,
+            y,
+            callback_ctx.subcontext(
+                task_name=f"func_loop_step_{i}", task_id=i, max_subtasks=0
+            ),
+            calling_func=func_with_callbacks,
+        )
+        for i in range(n_iter)
+    )
+
+    callback_ctx.eval_on_fit_end(func_with_callbacks)
+
+
+def _func_prl_loop(estimator, X, y, callback_ctx, calling_func):
+    cloned_est = clone(estimator)
+    callback_ctx.propagate_callbacks(cloned_est)
+    cloned_est.fit(X, y)
+
+    callback_ctx.eval_on_fit_task_end(
+        estimator=calling_func,
+        data={"X_train": X, "y_train": y},
+    )
+
+
+class MetaEstimatorUsingFunc(CallbackSupportMixin, BaseEstimator):
+    """A meta-estimator using a callback compatible function."""
+
+    _parameter_constraints: dict = {}
+
+    def __init__(
+        self, func, func_kwargs, estimator, n_iter=2, n_jobs=None, prefer="processes"
+    ):
+        self.func = func
+        self.func_kwargs = func_kwargs
+        self.estimator = estimator
+        self.n_iter = n_iter
+        self.n_jobs = n_jobs
+        self.prefer = prefer
+
+    @_fit_context(prefer_skip_nested_validation=False)
+    def fit(self, X=None, y=None):
+        callback_ctx = self._init_callback_context(max_subtasks=self.n_iter)
+        callback_ctx.eval_on_fit_begin(estimator=self)
+
+        Parallel(n_jobs=self.n_jobs, prefer=self.prefer)(
+            delayed(_meta_est_using_func_func)(
+                self,
+                self.estimator,
+                self.func,
+                self.func_kwargs,
+                X,
+                y,
+                callback_ctx=callback_ctx.subcontext(
+                    task_name="outer", task_id=i, max_subtasks=0
+                ),
+            )
+            for i in range(self.n_iter)
         )
 
-        cloned_est.fit(X, y)
-
-        if subcontext.eval_on_fit_task_end(
-            estimator=func_with_callbacks,
-            data={"X_train": X, "y_train": y},
-        ):
-            break
+        return self
 
 
-# TODO: test with nesting func: func and func; func and est
+def _meta_est_using_func_func(
+    meta_estimator, inner_estimator, func, func_kwargs, X, y, callback_ctx
+):
+    callback_ctx.propagate_callbacks(func)
+    func_kwargs["callbacks"] = func_kwargs.get("callbacs", []) + callback_ctx._callbacks
+    func(inner_estimator, X, y, **func_kwargs)
+    callback_ctx.eval_on_fit_task_end(
+        estimator=meta_estimator,
+        data={"X_train": X, "y_train": y},
+    )

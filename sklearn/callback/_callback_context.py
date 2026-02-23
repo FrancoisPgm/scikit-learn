@@ -3,6 +3,7 @@
 
 import warnings
 from contextlib import contextmanager
+from inspect import isfunction, signature
 
 from sklearn.callback._base import AutoPropagatedCallback, check_callbacks
 
@@ -151,7 +152,11 @@ class CallbackContext:
         # We don't store the estimator in the context to avoid circular references
         # because the estimator already holds a reference to the context.
         new_ctx._callbacks = getattr(estimator, "_skl_callbacks", [])
-        new_ctx.estimator_name = estimator.__class__.__name__
+        new_ctx.estimator_name = (
+            estimator.__class__.__name__
+            if not isfunction(estimator)
+            else estimator.__name__
+        )
         new_ctx.task_name = task_name
         new_ctx.task_id = task_id
         new_ctx.max_subtasks = max_subtasks
@@ -237,29 +242,8 @@ class CallbackContext:
         callbacks: callback instance, list of callback instance or None
             The callbacks used in the function.
         """
-        new_ctx = cls.__new__(cls)
+        new_ctx = cls._from_estimator(function, task_name, task_id, max_subtasks)
         new_ctx._callbacks = check_callbacks(callbacks)
-        new_ctx.estimator_name = f"function_{function.__name__}"
-        new_ctx.task_name = task_name
-        new_ctx.task_id = task_id
-        new_ctx.max_subtasks = max_subtasks
-        new_ctx.parent = None
-        new_ctx._children_map = {}
-        new_ctx.source_estimator_name = None
-        new_ctx.source_task_name = None
-        new_ctx._has_called_on_fit_begin = False
-
-        if hasattr(function, "_parent_callback_ctx"):
-            # This context's task is the root task of the estimator which itself
-            # corresponds to a leaf task of a meta-estimator. Both tasks actually
-            # represent the same task so we merge both tasks into a single task,
-            # attaching the task tree of the sub-estimator to the task tree of
-            # the meta-estimator on the way.
-            parent_ctx = function._parent_callback_ctx
-            new_ctx._merge_with(parent_ctx)
-            new_ctx._estimator_depth = parent_ctx._estimator_depth + 1
-        else:
-            new_ctx._estimator_depth = 0
 
         return new_ctx
 
@@ -442,7 +426,9 @@ class CallbackContext:
         if not callbacks_to_propagate:
             return self
 
-        if not hasattr(sub_estimator, "set_callbacks"):
+        if not isfunction(sub_estimator) and not hasattr(
+            sub_estimator, "set_callbacks"
+        ):
             warnings.warn(
                 f"The estimator {sub_estimator.__class__.__name__} does not support "
                 f"callbacks. The callbacks attached to {self.estimator_name} will not "
@@ -450,13 +436,25 @@ class CallbackContext:
             )
             return self
 
+        if (
+            isfunction(sub_estimator)
+            and "callbacks" not in signature(sub_estimator).parameters
+        ):
+            warnings.warn(
+                f"The function {sub_estimator.__name__} does not support callbacks. The"
+                f" callbacks attached to {self.estimator_name} will not "
+                f"be propagated through this function."
+            )
+            return self
+
         # We store the parent context in the sub-estimator to be able to merge the
         # task trees of the sub-estimator and the meta-estimator.
         sub_estimator._parent_callback_ctx = self
 
-        sub_estimator.set_callbacks(
-            getattr(sub_estimator, "_skl_callbacks", []) + callbacks_to_propagate
-        )
+        if not isfunction(sub_estimator):
+            sub_estimator.set_callbacks(
+                getattr(sub_estimator, "_skl_callbacks", []) + callbacks_to_propagate
+            )
 
         return self
 
