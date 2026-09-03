@@ -1,6 +1,7 @@
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
 
+import uuid
 from datetime import timedelta
 from numbers import Integral
 from queue import Queue
@@ -44,6 +45,7 @@ class ProgressBar:
 
         # Handles to the main-process per-fit listeners, keyed by `root_uuid`.
         self._listener_handles = {}
+        self._uuid = uuid.uuid4()
 
     def setup(self, estimator, context):
         # Lazily create the per-fit transport state. `setup` runs on the main
@@ -56,13 +58,15 @@ class ProgressBar:
         queue = Queue()
         # `queue.put` is the message consumer that `send` calls will use to forward
         # information to the rich monitor thread.
-        self._listener_handles[context.root_uuid] = open_listener(queue.put)
+        self._listener_handles[(context.root_uuid, self._uuid)] = open_listener(
+            queue.put
+        )
 
         progress_monitor = RichProgressMonitor(queue=queue)
         progress_monitor.start()
 
-        _run_queues[context.root_uuid] = queue
-        _run_monitors[context.root_uuid] = progress_monitor
+        _run_queues[(context.root_uuid, self._uuid)] = queue
+        _run_monitors[(context.root_uuid, self._uuid)] = progress_monitor
 
     def on_fit_task_begin(self, estimator, context):
         # A new progress bar is created at the beginning of each task that is not a
@@ -76,7 +80,7 @@ class ProgressBar:
             # progress bar and not the context to avoid pickling the whole context tree.
             path = [ctx.task_id for ctx in get_context_path(context)]
             send(
-                self._listener_handles[context.root_uuid],
+                self._listener_handles[(context.root_uuid, self._uuid)],
                 {
                     "event": "begin",
                     "path": path,
@@ -92,7 +96,7 @@ class ProgressBar:
     def on_fit_task_end(self, estimator, context):
         # The path is enough to update the progress of the task and its ancestors.
         send(
-            self._listener_handles[context.root_uuid],
+            self._listener_handles[(context.root_uuid, self._uuid)],
             {
                 "event": "end",
                 "path": [ctx.task_id for ctx in get_context_path(context)],
@@ -102,9 +106,9 @@ class ProgressBar:
     def teardown(self, estimator, context):
         # Fit is finished. Signal that the queue won't receive any more tasks, close
         # the monitor thread and the listener.
-        _run_queues.pop(context.root_uuid).put(None)
-        _run_monitors.pop(context.root_uuid).join()
-        close_listener(self._listener_handles.pop(context.root_uuid))
+        _run_queues.pop((context.root_uuid, self._uuid)).put(None)
+        _run_monitors.pop((context.root_uuid, self._uuid)).join()
+        close_listener(self._listener_handles.pop((context.root_uuid, self._uuid)))
 
 
 try:
